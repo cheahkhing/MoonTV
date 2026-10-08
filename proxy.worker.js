@@ -32,6 +32,14 @@ async function handleRequest(request) {
       (name) => !name.startsWith('cf-')
     );
 
+    // 对于豆瓣图片及接口，设置官方 Referer 规避 418 防盗链
+    if (
+      actualUrlStr.includes('doubanio.com') ||
+      actualUrlStr.includes('douban.com')
+    ) {
+      newHeaders.set('Referer', 'https://movie.douban.com/');
+    }
+
     // 创建一个新的请求以访问目标 URL
     const modifiedRequest = new Request(actualUrlStr, {
       headers: newHeaders,

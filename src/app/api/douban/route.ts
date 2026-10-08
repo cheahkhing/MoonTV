@@ -52,6 +52,7 @@ export async function GET(request: Request) {
   // 获取参数
   const type = searchParams.get('type');
   const tag = searchParams.get('tag');
+  const sort = searchParams.get('sort') || 'time';
   const pageSize = parseInt(searchParams.get('pageSize') || '16');
   const pageStart = parseInt(searchParams.get('pageStart') || '0');
 
@@ -59,28 +60,28 @@ export async function GET(request: Request) {
   if (!type || !tag) {
     return NextResponse.json(
       { error: '缺少必要参数: type 或 tag' },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   if (!['tv', 'movie'].includes(type)) {
     return NextResponse.json(
       { error: 'type 参数必须是 tv 或 movie' },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   if (pageSize < 1 || pageSize > 100) {
     return NextResponse.json(
       { error: 'pageSize 必须在 1-100 之间' },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
   if (pageStart < 0) {
     return NextResponse.json(
       { error: 'pageStart 不能小于 0' },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -88,7 +89,9 @@ export async function GET(request: Request) {
     return handleTop250(pageStart);
   }
 
-  const target = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageSize}&page_start=${pageStart}`;
+  const target = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURIComponent(
+    tag,
+  )}&sort=${sort}&page_limit=${pageSize}&page_start=${pageStart}`;
 
   try {
     // 调用豆瓣 API
@@ -120,7 +123,7 @@ export async function GET(request: Request) {
   } catch (error) {
     return NextResponse.json(
       { error: '获取豆瓣数据失败', details: (error as Error).message },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
@@ -200,7 +203,7 @@ function handleTop250(pageStart: number) {
           error: '获取豆瓣 Top250 数据失败',
           details: (error as Error).message,
         },
-        { status: 500 }
+        { status: 500 },
       );
     });
 }

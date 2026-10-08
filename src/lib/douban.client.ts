@@ -30,7 +30,7 @@ interface DoubanCategoryApiResponse {
  */
 async function fetchWithTimeout(
   url: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
@@ -72,7 +72,7 @@ export function shouldUseDoubanClient(): boolean {
  * 浏览器端豆瓣分类数据获取函数
  */
 export async function fetchDoubanCategories(
-  params: DoubanCategoriesParams
+  params: DoubanCategoriesParams,
 ): Promise<DoubanResult> {
   const { kind, category, type, pageLimit = 20, pageStart = 0 } = params;
 
@@ -124,7 +124,7 @@ export async function fetchDoubanCategories(
       window.dispatchEvent(
         new CustomEvent('globalError', {
           detail: { message: '获取豆瓣分类数据失败' },
-        })
+        }),
       );
     }
     throw new Error(`获取豆瓣分类数据失败: ${(error as Error).message}`);
@@ -135,7 +135,7 @@ export async function fetchDoubanCategories(
  * 统一的豆瓣分类数据获取函数，根据代理设置选择使用服务端 API 或客户端代理获取
  */
 export async function getDoubanCategories(
-  params: DoubanCategoriesParams
+  params: DoubanCategoriesParams,
 ): Promise<DoubanResult> {
   if (shouldUseDoubanClient()) {
     // 使用客户端代理获取（当设置了代理 URL 时）
@@ -144,7 +144,7 @@ export async function getDoubanCategories(
     // 使用服务端 API（当没有设置代理 URL 时）
     const { kind, category, type, pageLimit = 20, pageStart = 0 } = params;
     const response = await fetch(
-      `/api/douban/categories?kind=${kind}&category=${category}&type=${type}&limit=${pageLimit}&start=${pageStart}`
+      `/api/douban/categories?kind=${kind}&category=${category}&type=${type}&limit=${pageLimit}&start=${pageStart}`,
     );
 
     if (!response.ok) {
@@ -153,7 +153,7 @@ export async function getDoubanCategories(
         window.dispatchEvent(
           new CustomEvent('globalError', {
             detail: { message: '获取豆瓣分类数据失败' },
-          })
+          }),
         );
       }
       throw new Error('获取豆瓣分类数据失败');
@@ -168,18 +168,21 @@ interface DoubanListParams {
   type: string;
   pageLimit?: number;
   pageStart?: number;
+  sort?: string;
 }
 
 export async function getDoubanList(
-  params: DoubanListParams
+  params: DoubanListParams,
 ): Promise<DoubanResult> {
-  const { tag, type, pageLimit = 20, pageStart = 0 } = params;
+  const { tag, type, pageLimit = 20, pageStart = 0, sort = 'time' } = params;
   if (shouldUseDoubanClient()) {
     // 使用客户端代理获取（当设置了代理 URL 时）
     return fetchDoubanList(params);
   } else {
     const response = await fetch(
-      `/api/douban?tag=${tag}&type=${type}&pageSize=${pageLimit}&pageStart=${pageStart}`
+      `/api/douban?tag=${encodeURIComponent(
+        tag,
+      )}&type=${type}&pageSize=${pageLimit}&pageStart=${pageStart}&sort=${sort}`,
     );
 
     if (!response.ok) {
@@ -188,7 +191,7 @@ export async function getDoubanList(
         window.dispatchEvent(
           new CustomEvent('globalError', {
             detail: { message: '获取豆瓣列表数据失败' },
-          })
+          }),
         );
       }
       throw new Error('获取豆瓣列表数据失败');
@@ -199,9 +202,9 @@ export async function getDoubanList(
 }
 
 export async function fetchDoubanList(
-  params: DoubanListParams
+  params: DoubanListParams,
 ): Promise<DoubanResult> {
-  const { tag, type, pageLimit = 20, pageStart = 0 } = params;
+  const { tag, type, pageLimit = 20, pageStart = 0, sort = 'time' } = params;
 
   // 验证参数
   if (!tag || !type) {
@@ -220,7 +223,9 @@ export async function fetchDoubanList(
     throw new Error('pageStart 不能小于 0');
   }
 
-  const target = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
+  const target = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${encodeURIComponent(
+    tag,
+  )}&sort=${sort}&page_limit=${pageLimit}&page_start=${pageStart}`;
 
   try {
     const response = await fetchWithTimeout(target);
@@ -229,14 +234,19 @@ export async function fetchDoubanList(
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
-    const doubanData: DoubanCategoryApiResponse = await response.json();
+    const doubanData: any = await response.json();
+    const rawList = doubanData.items || doubanData.subjects || [];
 
     // 转换数据格式
-    const list: DoubanItem[] = doubanData.items.map((item) => ({
+    const list: DoubanItem[] = rawList.map((item: any) => ({
       id: item.id,
       title: item.title,
-      poster: item.pic?.normal || item.pic?.large || '',
-      rate: item.rating?.value ? item.rating.value.toFixed(1) : '',
+      poster: item.pic?.normal || item.pic?.large || item.cover || '',
+      rate: item.rating?.value
+        ? item.rating.value.toFixed(1)
+        : item.rate
+          ? String(item.rate)
+          : '',
       year: item.card_subtitle?.match(/(\d{4})/)?.[1] || '',
     }));
 
@@ -251,7 +261,7 @@ export async function fetchDoubanList(
       window.dispatchEvent(
         new CustomEvent('globalError', {
           detail: { message: '获取豆瓣列表数据失败' },
-        })
+        }),
       );
     }
     throw new Error(`获取豆瓣分类数据失败: ${(error as Error).message}`);

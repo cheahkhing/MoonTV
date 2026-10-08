@@ -4,7 +4,7 @@
 
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getDoubanCategories, getDoubanList } from '@/lib/douban.client';
 import { DoubanItem, DoubanResult } from '@/lib/types';
@@ -23,6 +23,9 @@ function DoubanPageClient() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectorsReady, setSelectorsReady] = useState(false);
+  const [sortOrder, setSortOrder] = useState<
+    'year_desc' | 'default' | 'rate_desc'
+  >('year_desc');
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadingRef = useRef<HTMLDivElement>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -36,7 +39,7 @@ function DoubanPageClient() {
 
   // 选择器状态 - 完全独立，不依赖URL参数
   const [primarySelection, setPrimarySelection] = useState<string>(() => {
-    return type === 'movie' ? '热门' : '';
+    return type === 'movie' || type === 'tv' ? '最新' : '';
   });
   const [secondarySelection, setSecondarySelection] = useState<string>(() => {
     if (type === 'movie') return '全部';
@@ -74,7 +77,7 @@ function DoubanPageClient() {
     if (type === 'custom' && customCategories.length > 0) {
       // 自定义分类模式：优先选择 movie，如果没有 movie 则选择 tv
       const types = Array.from(
-        new Set(customCategories.map((cat) => cat.type))
+        new Set(customCategories.map((cat) => cat.type)),
       );
       if (types.length > 0) {
         // 优先选择 movie，如果没有 movie 则选择 tv
@@ -88,7 +91,7 @@ function DoubanPageClient() {
 
         // 设置选中类型的第一个分类的 query 作为二级选择
         const firstCategory = customCategories.find(
-          (cat) => cat.type === selectedType
+          (cat) => cat.type === selectedType,
         );
         if (firstCategory) {
           setSecondarySelection(firstCategory.query);
@@ -97,10 +100,10 @@ function DoubanPageClient() {
     } else {
       // 原有逻辑
       if (type === 'movie') {
-        setPrimarySelection('热门');
+        setPrimarySelection('最新');
         setSecondarySelection('全部');
       } else if (type === 'tv') {
-        setPrimarySelection('');
+        setPrimarySelection('最新');
         setSecondarySelection('tv');
       } else if (type === 'show') {
         setPrimarySelection('');
@@ -125,27 +128,36 @@ function DoubanPageClient() {
   // 生成API请求参数的辅助函数
   const getRequestParams = useCallback(
     (pageStart: number) => {
-      // 当type为tv或show时，kind统一为'tv'，category使用type本身
-      if (type === 'tv' || type === 'show') {
+      if (type === 'tv') {
         return {
           kind: 'tv' as const,
-          category: type,
+          category: primarySelection || '最新',
           type: secondarySelection,
           pageLimit: 25,
           pageStart,
         };
       }
 
-      // 电影类型保持原逻辑
+      if (type === 'show') {
+        return {
+          kind: 'tv' as const,
+          category: 'show',
+          type: secondarySelection,
+          pageLimit: 25,
+          pageStart,
+        };
+      }
+
+      // 电影类型
       return {
         kind: type as 'tv' | 'movie',
-        category: primarySelection,
+        category: primarySelection || '最新',
         type: secondarySelection,
         pageLimit: 25,
         pageStart,
       };
     },
-    [type, primarySelection, secondarySelection]
+    [type, primarySelection, secondarySelection],
   );
 
   // 防抖的数据加载函数
@@ -158,15 +170,22 @@ function DoubanPageClient() {
         // 自定义分类模式：根据选中的一级和二级选项获取对应的分类
         const selectedCategory = customCategories.find(
           (cat) =>
-            cat.type === primarySelection && cat.query === secondarySelection
+            cat.type === primarySelection && cat.query === secondarySelection,
         );
 
         if (selectedCategory) {
+          const apiSort =
+            sortOrder === 'rate_desc'
+              ? 'rank'
+              : sortOrder === 'default'
+                ? 'recommend'
+                : 'time';
           data = await getDoubanList({
             tag: selectedCategory.query,
             type: selectedCategory.type,
             pageLimit: 25,
             pageStart: 0,
+            sort: apiSort,
           });
         } else {
           throw new Error('没有找到对应的分类');
@@ -191,6 +210,7 @@ function DoubanPageClient() {
     secondarySelection,
     getRequestParams,
     customCategories,
+    sortOrder,
   ]);
 
   // 只在选择器准备好后才加载数据
@@ -243,22 +263,29 @@ function DoubanPageClient() {
             const selectedCategory = customCategories.find(
               (cat) =>
                 cat.type === primarySelection &&
-                cat.query === secondarySelection
+                cat.query === secondarySelection,
             );
 
             if (selectedCategory) {
+              const apiSort =
+                sortOrder === 'rate_desc'
+                  ? 'rank'
+                  : sortOrder === 'default'
+                    ? 'recommend'
+                    : 'time';
               data = await getDoubanList({
                 tag: selectedCategory.query,
                 type: selectedCategory.type,
                 pageLimit: 25,
                 pageStart: currentPage * 25,
+                sort: apiSort,
               });
             } else {
               throw new Error('没有找到对应的分类');
             }
           } else {
             data = await getDoubanCategories(
-              getRequestParams(currentPage * 25)
+              getRequestParams(currentPage * 25),
             );
           }
 
@@ -283,6 +310,7 @@ function DoubanPageClient() {
     primarySelection,
     secondarySelection,
     customCategories,
+    sortOrder,
   ]);
 
   // 设置滚动监听
@@ -303,7 +331,7 @@ function DoubanPageClient() {
           setCurrentPage((prev) => prev + 1);
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
 
     observer.observe(loadingRef.current);
@@ -323,10 +351,19 @@ function DoubanPageClient() {
       if (value !== primarySelection) {
         setLoading(true);
 
+        // 智能根据选中的主标签切换排序策略
+        if (value === '最新') {
+          setSortOrder('year_desc');
+        } else if (value === '热门' || value === 'tv') {
+          setSortOrder('default');
+        } else if (value === '豆瓣高分') {
+          setSortOrder('rate_desc');
+        }
+
         // 如果是自定义分类模式，同时更新一级和二级选择器
         if (type === 'custom' && customCategories.length > 0) {
           const firstCategory = customCategories.find(
-            (cat) => cat.type === value
+            (cat) => cat.type === value,
           );
           if (firstCategory) {
             // 批量更新状态，避免多次触发数据加载
@@ -340,7 +377,7 @@ function DoubanPageClient() {
         }
       }
     },
-    [primarySelection, type, customCategories]
+    [primarySelection, type, customCategories],
   );
 
   const handleSecondaryChange = useCallback(
@@ -351,18 +388,43 @@ function DoubanPageClient() {
         setSecondarySelection(value);
       }
     },
-    [secondarySelection]
+    [secondarySelection],
   );
+
+  // 排序后的展示数据
+  const displayData = useMemo(() => {
+    if (sortOrder === 'year_desc') {
+      return [...doubanData].sort((a, b) => {
+        const yearA = parseInt(a.year) || 0;
+        const yearB = parseInt(b.year) || 0;
+        if (yearB !== yearA) {
+          return yearB - yearA; // 年份倒序，最新在前
+        }
+        return 0;
+      });
+    }
+    if (sortOrder === 'rate_desc') {
+      return [...doubanData].sort((a, b) => {
+        const rateA = parseFloat(a.rate) || 0;
+        const rateB = parseFloat(b.rate) || 0;
+        if (rateB !== rateA) {
+          return rateB - rateA; // 评分降序
+        }
+        return 0;
+      });
+    }
+    return doubanData;
+  }, [doubanData, sortOrder]);
 
   const getPageTitle = () => {
     // 根据 type 生成标题
     return type === 'movie'
       ? '电影'
       : type === 'tv'
-      ? '电视剧'
-      : type === 'show'
-      ? '综艺'
-      : '自定义';
+        ? '电视剧'
+        : type === 'show'
+          ? '综艺'
+          : '自定义';
   };
 
   const getActivePath = () => {
@@ -379,14 +441,55 @@ function DoubanPageClient() {
       <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible'>
         {/* 页面标题和选择器 */}
         <div className='mb-6 sm:mb-8 space-y-4 sm:space-y-6'>
-          {/* 页面标题 */}
-          <div>
-            <h1 className='text-2xl sm:text-3xl font-bold text-gray-800 mb-1 sm:mb-2 dark:text-gray-200'>
-              {getPageTitle()}
-            </h1>
-            <p className='text-sm sm:text-base text-gray-600 dark:text-gray-400'>
-              来自豆瓣的精选内容
-            </p>
+          {/* 页面标题与排序选项 */}
+          <div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
+            <div>
+              <h1 className='text-2xl sm:text-3xl font-bold text-gray-800 mb-1 sm:mb-2 dark:text-gray-200'>
+                {getPageTitle()}
+              </h1>
+              <p className='text-sm sm:text-base text-gray-600 dark:text-gray-400'>
+                来自豆瓣的精选内容
+              </p>
+            </div>
+
+            {/* 排序方式选择器 */}
+            <div className='flex items-center gap-2 self-start sm:self-auto'>
+              <span className='text-xs sm:text-sm font-medium text-gray-500 dark:text-gray-400'>
+                排序:
+              </span>
+              <div className='relative inline-flex bg-gray-200/60 rounded-full p-0.5 sm:p-1 dark:bg-gray-700/60 backdrop-blur-sm'>
+                <button
+                  onClick={() => setSortOrder('year_desc')}
+                  className={`px-2.5 py-1 text-xs sm:text-sm font-medium rounded-full transition-all duration-200 cursor-pointer ${
+                    sortOrder === 'year_desc'
+                      ? 'bg-white dark:bg-gray-500 text-gray-900 dark:text-gray-100 shadow-sm'
+                      : 'text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+                  }`}
+                >
+                  最新上映
+                </button>
+                <button
+                  onClick={() => setSortOrder('default')}
+                  className={`px-2.5 py-1 text-xs sm:text-sm font-medium rounded-full transition-all duration-200 cursor-pointer ${
+                    sortOrder === 'default'
+                      ? 'bg-white dark:bg-gray-500 text-gray-900 dark:text-gray-100 shadow-sm'
+                      : 'text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+                  }`}
+                >
+                  综合推荐
+                </button>
+                <button
+                  onClick={() => setSortOrder('rate_desc')}
+                  className={`px-2.5 py-1 text-xs sm:text-sm font-medium rounded-full transition-all duration-200 cursor-pointer ${
+                    sortOrder === 'rate_desc'
+                      ? 'bg-white dark:bg-gray-500 text-gray-900 dark:text-gray-100 shadow-sm'
+                      : 'text-gray-700 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+                  }`}
+                >
+                  最高评分
+                </button>
+              </div>
+            </div>
           </div>
 
           {/* 选择器组件 */}
@@ -421,7 +524,7 @@ function DoubanPageClient() {
               ? // 显示骨架屏
                 skeletonData.map((index) => <DoubanCardSkeleton key={index} />)
               : // 显示实际数据
-                doubanData.map((item, index) => (
+                displayData.map((item, index) => (
                   <div key={`${item.title}-${index}`} className='w-full'>
                     <VideoCard
                       from='douban'
@@ -458,12 +561,12 @@ function DoubanPageClient() {
           )}
 
           {/* 没有更多数据提示 */}
-          {!hasMore && doubanData.length > 0 && (
+          {!hasMore && displayData.length > 0 && (
             <div className='text-center text-gray-500 py-8'>已加载全部内容</div>
           )}
 
           {/* 空状态 */}
-          {!loading && doubanData.length === 0 && (
+          {!loading && displayData.length === 0 && (
             <div className='text-center text-gray-500 py-8'>暂无相关内容</div>
           )}
         </div>

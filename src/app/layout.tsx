@@ -48,8 +48,12 @@ export default async function RootLayout({
     process.env.ANNOUNCEMENT ||
     '本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。';
   let enableRegister = process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true';
-  let imageProxy = process.env.NEXT_PUBLIC_IMAGE_PROXY || '';
-  let doubanProxy = process.env.NEXT_PUBLIC_DOUBAN_PROXY || '';
+  let imageProxy =
+    process.env.NEXT_PUBLIC_IMAGE_PROXY ||
+    'https://moontv-proxy.khing37.workers.dev/';
+  let doubanProxy =
+    process.env.NEXT_PUBLIC_DOUBAN_PROXY ||
+    'https://moontv-proxy.khing37.workers.dev/';
   let disableYellowFilter =
     process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
   let customCategories =
